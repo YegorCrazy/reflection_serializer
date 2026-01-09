@@ -4,43 +4,38 @@
 #include <ranges>
 #include <sstream>
 
+#include "nlohmann/json.hpp"
+
 namespace serializer
 {
 
 template <class T>
-void serialize(std::stringstream& ss, const T& obj)
+nlohmann::json serialize(const T& obj)
 {
     constexpr auto ctx = std::meta::access_context::unchecked();
 
-    template for (constexpr auto field : define_static_array(nonstatic_data_members_of(^^T, ctx)))
-        ss << identifier_of(field) << " " << obj.[:field:] << std::endl;
+    nlohmann::json result;
+    template for (constexpr auto& field : define_static_array(nonstatic_data_members_of(^^T, ctx)))
+        result[identifier_of(field)] = obj.[:field:];
+
+    return result;
 }
 
 template <class T>
-T deserialize(std::string str)
+T deserialize(const nlohmann::json& j)
 {
     constexpr auto ctx = std::meta::access_context::unchecked();
     T result;
 
-    for (const auto& line : str | std::ranges::views::split('\n')
-             | std::ranges::to<std::vector<std::string>>())
+    template for (constexpr auto& field : define_static_array(nonstatic_data_members_of(^^T, ctx)))
     {
-        if (!line.empty())
+        try
         {
-            auto delimPos = line.find(' ');
-            auto name = line.substr(0, delimPos);
-            auto strVal = line.substr(delimPos + 1);
-            template for (constexpr auto field : define_static_array(nonstatic_data_members_of(^^T, ctx)))
-            {
-                if (identifier_of(field) == name)
-                {
-                    auto iss = std::stringstream(strVal);
-                    if (iss >> result.[:field:]; !iss) {
-                        std::print(stderr, "Failed to parse field {} into a {}\n", strVal, display_string_of(type_of(field)));
-                        std::exit(EXIT_FAILURE);
-                    }
-                }
-            }
+            result.[:field:] = j[identifier_of(field)].template get<typename[:type_of(field):]>();
+        }
+        catch (...)
+        {
+            std::cerr << "Error deSerializing field " << identifier_of(field) << std::endl;
         }
     }
 
